@@ -10,6 +10,7 @@ from airflow.contrib.operators.slack_webhook_operator import SlackWebhookOperato
 
 
 def get_events_from_api(**context):
+    """ Returns from the API an array of events with magnitude greater than 5.0. """
     events = []
     response = requests.get(Variable.get("USGS_API_URL"))
     for event in response.json().get("features", []):
@@ -27,33 +28,37 @@ def get_events_from_api(**context):
             events.append(data)
     
     # push events data to next task instance using XCom
-    context["ti"].xcom_push(key="events", value=events)
+    context["ti"].xcom_push(key = "events", value = events)
 
 
 def save_events_to_db(**context):
+    """ Inserts the events to database. """
     insert_query = """
         INSERT INTO public.earthquake_events (event_id, event_name, magnitude, longitude, latitude, date)
         VALUES (%s, %s, %s, %s, %s, %s); 
         """
     # pull event data from previous task instance using XCom
-    events = context["ti"].xcom_pull(task_ids='get_new_events', key='events')
+    events = context["ti"].xcom_pull(task_ids = 'get_new_events', key = 'events')
     for event in events:
         params = tuple(event.values())
-        PostgresHook(postgres_conn_id="postgres_default", schema="usgs_eq").run(insert_query, parameters=params)
+        PostgresHook(
+            postgres_conn_id = "postgres_default", 
+            schema = "usgs_eq"
+        ).run(insert_query, parameters = params)
 
 
 # dags default arguments
 default_args = {
-    "owner": "me",
-    "start_date": datetime(2020, 10, 9),
+    "owner": "olaoye.somide",
+    "start_date": datetime(2020, 12, 12),
     'retries': 1,
     'retry_delay': timedelta(minutes=5),    
     "schedule_interval": "@daily"
 }
 
 # instantiate aiflow dag
-with DAG('usgs_harvester', default_args=default_args, schedule_interval='0 8 * * *') as dag:
-    # Task One: Create Postgres Table (if none exists).
+with DAG('usgs_harvester', default_args = default_args, schedule_interval = '0 8 * * *') as dag:
+    # Task 1: Create Postgres Table (if none exists).
     task_one = PostgresOperator(
         task_id = 'create_table',
         sql = '''CREATE TABLE IF NOT EXISTS public.earthquake_events (
